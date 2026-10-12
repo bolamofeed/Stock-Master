@@ -1,0 +1,6 @@
+{
+  "name": "StockMaster",
+  "description": "Inventory and warehouse stock management with barcode scanning, invoicing, and role-based access control.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

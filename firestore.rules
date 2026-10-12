@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for Role-Based Access Control (RBAC)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return request.auth.token.role != null ? request.auth.token.role :
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+
+    function isManager() {
+      return isAuthenticated() && (getUserRole() == 'manager' || isAdmin());
+    }
+
+    function isVendor() {
+      return isAuthenticated() && getUserRole() == 'vendor';
+    }
+
+    function isCashier() {
+      return isAuthenticated() && getUserRole() == 'cashier';
+    }
+
+    function isAuditor() {
+      return isAuthenticated() && getUserRole() == 'auditor';
+    }
+
+    // 1. Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isManager());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 2. Items / Inventory
+    match /items/{itemId} {
+      // Vendor only sees items from their assigned supplier
+      allow read: if isAuthenticated() && (
+        !isVendor() ||
+        resource.data.supplierId == request.auth.token.supplierId ||
+        resource.data.supplier == request.auth.token.supplierName
+      );
+      // Only Admin and Manager can create, update, or delete items
+      allow create, update, delete: if isManager();
+    }
+
+    // 3. Stock Movements (Immutable audit log of stock deltas)
+    match /stockMovements/{movementId} {
+      allow read: if isAuthenticated() && (!isVendor() || resource.data.userId == request.auth.uid);
+      allow create: if isManager() || (isCashier() && request.resource.data.type == 'STOCK_OUT');
+      allow update, delete: if false; // Movements are strictly immutable
+    }
+
+    // 4. Invoices
+    match /invoices/{invoiceId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() || isManager() || isAuditor() ||
+        (isCashier() && resource.data.createdBy == request.auth.uid) ||
+        (isVendor() && resource.data.entityName == request.auth.token.supplierName)
+      );
+      allow create: if isManager() || (isCashier() && request.resource.data.type == 'SALES');
+      allow update: if isManager();
+      allow delete: if isAdmin();
+    }
+
+    // 5. Warehouses & Suppliers
+    match /warehouses/{warehouseId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+
+    match /suppliers/{supplierId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+
+    // 6. Notifications
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || isManager()
+      );
+      allow create: if isAuthenticated();
+    }
+
+    // 7. Audit Logs
+    match /auditLogs/{logId} {
+      allow read: if isManager() || isAuditor();
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // Append-only audit security
+    }
+
+    // 8. Global Settings
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}
