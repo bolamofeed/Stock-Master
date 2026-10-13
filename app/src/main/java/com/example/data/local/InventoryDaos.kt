@@ -8,9 +8,11 @@ import androidx.room.Query
 import androidx.room.Update
 import com.example.data.model.AppNotification
 import com.example.data.model.AuditLog
+import com.example.data.model.Brand
 import com.example.data.model.Client
 import com.example.data.model.Invoice
 import com.example.data.model.Item
+import com.example.data.model.ItemBrand
 import com.example.data.model.StockMovement
 import com.example.data.model.Supplier
 import com.example.data.model.Warehouse
@@ -77,6 +79,9 @@ interface InvoiceDao {
 
     @Update
     suspend fun updateInvoice(invoice: Invoice)
+
+    @Query("SELECT * FROM invoices WHERE type = 'SALES' AND (LOWER(entityName) = LOWER(:entityName) OR entityContact = :entityContact) ORDER BY createdAt DESC")
+    fun getSalesInvoicesForClient(entityName: String, entityContact: String): Flow<List<Invoice>>
 }
 
 @Dao
@@ -141,19 +146,19 @@ interface NotificationDao {
 
 @Dao
 interface ClientDao {
-    @Query("SELECT * FROM clients ORDER BY name ASC")
+    @Query("SELECT * FROM clients WHERE isDeleted = 0 ORDER BY name ASC")
     fun getAllClients(): Flow<List<Client>>
 
     @Query("SELECT * FROM clients WHERE id = :id LIMIT 1")
     suspend fun getClientById(id: String): Client?
 
-    @Query("SELECT * FROM clients WHERE LOWER(name) = LOWER(:name) LIMIT 1")
+    @Query("SELECT * FROM clients WHERE isDeleted = 0 AND LOWER(name) = LOWER(:name) LIMIT 1")
     suspend fun getClientByName(name: String): Client?
 
-    @Query("SELECT * FROM clients WHERE phone = :phone LIMIT 1")
+    @Query("SELECT * FROM clients WHERE isDeleted = 0 AND phone = :phone LIMIT 1")
     suspend fun getClientByPhone(phone: String): Client?
 
-    @Query("SELECT * FROM clients WHERE name LIKE '%' || :query || '%' OR phone LIKE '%' || :query || '%' ORDER BY name ASC")
+    @Query("SELECT * FROM clients WHERE isDeleted = 0 AND (name LIKE '%' || :query || '%' OR phone LIKE '%' || :query || '%') ORDER BY name ASC")
     fun searchClients(query: String): Flow<List<Client>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -168,4 +173,74 @@ interface ClientDao {
     @Delete
     suspend fun deleteClient(client: Client)
 }
+
+@Dao
+interface BrandDao {
+    @Query("SELECT * FROM brands ORDER BY name ASC")
+    fun getAllBrands(): Flow<List<Brand>>
+
+    @Query("SELECT * FROM brands WHERE status = 1 ORDER BY name ASC")
+    fun getActiveBrands(): Flow<List<Brand>>
+
+    @Query("SELECT * FROM brands WHERE id = :id LIMIT 1")
+    suspend fun getBrandById(id: String): Brand?
+
+    @Query("SELECT * FROM brands WHERE LOWER(name) = LOWER(:name) LIMIT 1")
+    suspend fun getBrandByNameLower(name: String): Brand?
+
+    @Query("SELECT * FROM brands WHERE name LIKE '%' || :query || '%' ORDER BY name ASC")
+    fun searchBrands(query: String): Flow<List<Brand>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBrand(brand: Brand)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBrands(brands: List<Brand>)
+
+    @Update
+    suspend fun updateBrand(brand: Brand)
+
+    @Delete
+    suspend fun deleteBrand(brand: Brand)
+
+    @Query("UPDATE brands SET status = :status, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateBrandStatus(id: String, status: Int, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE brands SET itemCount = :count, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateBrandItemCount(id: String, count: Int, updatedAt: Long = System.currentTimeMillis())
+}
+
+@Dao
+interface ItemBrandDao {
+    @Query("SELECT * FROM item_brands WHERE itemId = :itemId ORDER BY brandName ASC")
+    fun getItemBrandsForItem(itemId: String): Flow<List<ItemBrand>>
+
+    @Query("SELECT * FROM item_brands WHERE itemId = :itemId ORDER BY brandName ASC")
+    suspend fun getItemBrandsByItemId(itemId: String): List<ItemBrand>
+
+    @Query("SELECT * FROM item_brands WHERE barcode = :barcode LIMIT 1")
+    suspend fun getItemBrandByBarcode(barcode: String): ItemBrand?
+
+    @Query("SELECT * FROM item_brands WHERE brandId = :brandId")
+    suspend fun getItemBrandsForBrand(brandId: String): List<ItemBrand>
+
+    @Query("SELECT COUNT(*) FROM item_brands WHERE brandId = :brandId")
+    suspend fun countItemsForBrand(brandId: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertItemBrand(itemBrand: ItemBrand)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertItemBrands(itemBrands: List<ItemBrand>)
+
+    @Query("DELETE FROM item_brands WHERE itemId = :itemId")
+    suspend fun deleteItemBrandsForItem(itemId: String)
+
+    @Query("UPDATE item_brands SET quantity = :newQuantity WHERE id = :id")
+    suspend fun updateItemBrandQuantity(id: String, newQuantity: Int)
+
+    @Query("UPDATE item_brands SET brandName = :newName WHERE brandId = :brandId")
+    suspend fun updateBrandName(brandId: String, newName: String)
+}
+
 

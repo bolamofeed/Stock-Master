@@ -30,9 +30,11 @@ import com.example.ui.screens.inventory.ItemDetailScreen
 import com.example.ui.screens.invoices.CreateInvoiceScreen
 import com.example.ui.screens.invoices.InvoiceListScreen
 import com.example.ui.screens.more.AuditLogScreen
+import com.example.ui.screens.more.BrandsScreen
 import com.example.ui.screens.more.MoreMenuScreen
 import com.example.ui.screens.more.SuppliersScreen
 import com.example.ui.screens.more.WarehousesScreen
+import com.example.ui.screens.customers.CustomersScreen
 import com.example.ui.screens.notifications.NotificationCenterScreen
 import com.example.ui.screens.reports.ReportsScreen
 import com.example.ui.screens.scan.BarcodeScanScreen
@@ -196,7 +198,16 @@ fun StockMasterApp(viewModel: InventoryViewModel) {
                     viewModel = viewModel,
                     onNavigateToWarehouses = { navController.navigate(Screen.Warehouses.route) },
                     onNavigateToSuppliers = { navController.navigate(Screen.Suppliers.route) },
+                    onNavigateToCustomers = { navController.navigate(Screen.Customers.route) },
+                    onNavigateToBrands = { navController.navigate(Screen.Brands.route) },
                     onNavigateToAuditLog = { navController.navigate(Screen.AuditLogs.route) }
+                )
+            }
+
+            composable(Screen.Brands.route) {
+                BrandsScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
 
@@ -209,6 +220,13 @@ fun StockMasterApp(viewModel: InventoryViewModel) {
 
             composable(Screen.Suppliers.route) {
                 SuppliersScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.Customers.route) {
+                CustomersScreen(
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() }
                 )

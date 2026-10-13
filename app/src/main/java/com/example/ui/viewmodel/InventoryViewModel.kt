@@ -6,18 +6,22 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.model.AppNotification
 import com.example.data.model.AuditLog
+import com.example.data.model.Brand
 import com.example.data.model.Client
 import com.example.data.model.CurrentUser
 import com.example.data.model.Invoice
 import com.example.data.model.InvoiceLineItem
 import com.example.data.model.InvoiceType
 import com.example.data.model.Item
+import com.example.data.model.ItemBrand
 import com.example.data.model.MovementType
 import com.example.data.model.StockMovement
 import com.example.data.model.Supplier
 import com.example.data.model.UserRole
 import com.example.data.model.Warehouse
 import com.example.data.repository.InventoryRepository
+import com.example.data.repository.MigrationResult
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -104,6 +108,14 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
     )
 
     val allSuppliers: StateFlow<List<Supplier>> = repository.allSuppliers.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+
+    val allBrands: StateFlow<List<Brand>> = repository.allBrands.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+
+    val activeBrands: StateFlow<List<Brand>> = repository.activeBrands.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
 
@@ -271,6 +283,7 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
         discountPercent: Double,
         notes: String,
         markAsPaid: Boolean = true,
+        saveCustomer: Boolean = true,
         onResult: (Result<Invoice>) -> Unit = {}
     ) {
         viewModelScope.launch {
@@ -285,7 +298,8 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
                 notes = notes,
                 user = user.name,
                 role = user.role.name,
-                markAsPaid = markAsPaid
+                markAsPaid = markAsPaid,
+                saveCustomer = saveCustomer
             )
             onResult(result)
         }
@@ -338,4 +352,155 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearNotifications() {
         viewModelScope.launch { repository.clearNotifications() }
     }
+
+    fun addClient(name: String, phone: String, email: String = "", address: String = "", onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            val client = Client(
+                id = java.util.UUID.randomUUID().toString(),
+                name = name.trim(),
+                phone = phone.trim(),
+                email = email.trim(),
+                address = address.trim(),
+                totalPurchasesAmount = 0.0,
+                invoicesCount = 0,
+                lastPurchaseDate = 0L,
+                createdAt = System.currentTimeMillis()
+            )
+            repository.saveClient(client)
+            onDone()
+        }
+    }
+
+    fun updateClient(client: Client, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.updateClient(client)
+            onDone()
+        }
+    }
+
+    fun softDeleteClient(clientId: String, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            val user = _currentUser.value
+            repository.softDeleteClient(clientId, user.name, user.role.name)
+            onDone()
+        }
+    }
+
+    fun markClientContacted(clientId: String, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.markClientContacted(clientId)
+            onDone()
+        }
+    }
+
+    fun getClientInvoices(name: String, phone: String): Flow<List<Invoice>> =
+        repository.getInvoicesForCustomer(name, phone)
+
+    fun getItemBrands(itemId: String): Flow<List<ItemBrand>> =
+        repository.brandRepository.getItemBrandsForItem(itemId)
+
+    fun getItemBrandByBarcode(barcode: String, onResult: (ItemBrand?) -> Unit) {
+        viewModelScope.launch {
+            val itemBrand = repository.brandRepository.getItemBrandByBarcode(barcode)
+            onResult(itemBrand)
+        }
+    }
+
+    fun saveBrand(
+        name: String,
+        costPriceMinor: Long,
+        salePriceMinor: Long,
+        onResult: (Result<Brand>) -> Unit
+    ) {
+        viewModelScope.launch {
+            val user = _currentUser.value
+            val res = repository.brandRepository.saveBrand(
+                name = name,
+                defaultCostPriceMinor = costPriceMinor,
+                defaultSalePriceMinor = salePriceMinor,
+                user = user.name,
+                role = user.role.name
+            )
+            onResult(res)
+        }
+    }
+
+    fun updateBrand(
+        id: String,
+        name: String,
+        costPriceMinor: Long,
+        salePriceMinor: Long,
+        onResult: (Result<Brand>) -> Unit
+    ) {
+        viewModelScope.launch {
+            val user = _currentUser.value
+            val res = repository.brandRepository.updateBrand(
+                id = id,
+                newName = name,
+                newCostPriceMinor = costPriceMinor,
+                newSalePriceMinor = salePriceMinor,
+                user = user.name,
+                role = user.role.name
+            )
+            onResult(res)
+        }
+    }
+
+    fun deleteOrDeactivateBrand(brandId: String, onResult: (Result<String>) -> Unit) {
+        viewModelScope.launch {
+            val user = _currentUser.value
+            val res = repository.brandRepository.deleteOrDeactivateBrand(
+                brandId = brandId,
+                user = user.name,
+                role = user.role.name
+            )
+            onResult(res)
+        }
+    }
+
+    fun reactivateBrand(brandId: String, onResult: (Result<Brand>) -> Unit) {
+        viewModelScope.launch {
+            val user = _currentUser.value
+            val res = repository.brandRepository.reactivateBrand(
+                brandId = brandId,
+                user = user.name,
+                role = user.role.name
+            )
+            onResult(res)
+        }
+    }
+
+    fun getItemsUsingBrand(brandId: String, onResult: (List<Item>) -> Unit) {
+        viewModelScope.launch {
+            val items = repository.brandRepository.getItemsUsingBrand(brandId)
+            onResult(items)
+        }
+    }
+
+    fun runBrandMigration(dryRun: Boolean, onResult: (MigrationResult) -> Unit) {
+        viewModelScope.launch {
+            val res = repository.brandRepository.migrateSinglePriceItemsToDefaultBrand(dryRun)
+            onResult(res)
+        }
+    }
+
+    fun saveItemWithBrands(
+        item: Item,
+        brands: List<ItemBrand>,
+        isNew: Boolean,
+        onComplete: () -> Unit
+    ) {
+        viewModelScope.launch {
+            val user = _currentUser.value
+            repository.saveItemWithBrands(
+                item = item,
+                brands = brands,
+                user = user.name,
+                role = user.role.name,
+                isNew = isNew
+            )
+            onComplete()
+        }
+    }
 }
+

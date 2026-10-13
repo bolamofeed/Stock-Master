@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.example.data.model.Item
+import com.example.data.model.ItemBrand
 import com.example.ui.components.Code128BarcodeView
 import com.example.ui.components.QrCodeView
 import com.example.ui.screens.inventory.StockAdjustDialog
@@ -157,13 +158,31 @@ fun BarcodeScanScreen(
 
     fun handleBarcodeDiscovered(code: String) {
         val trimmed = code.trim()
-        val found = items.find { it.barcode.equals(trimmed, ignoreCase = true) || it.sku.equals(trimmed, ignoreCase = true) }
+        var found = items.find { it.barcode.equals(trimmed, ignoreCase = true) || it.sku.equals(trimmed, ignoreCase = true) }
+        var matchedBrandName: String? = null
+
+        if (found == null) {
+            // Check brand-specific barcodes
+            for (item in items) {
+                if (item.brandsJson.isNotBlank()) {
+                    val brands = item.brandsJson.split("##").mapNotNull { ItemBrand.deserialize(it) }
+                    val matchedBrand = brands.find { it.barcode.equals(trimmed, ignoreCase = true) }
+                    if (matchedBrand != null) {
+                        found = item
+                        matchedBrandName = matchedBrand.brandName
+                        break
+                    }
+                }
+            }
+        }
+
         if (found != null) {
             when (workflowMode) {
                 ScanWorkflowMode.LOOKUP -> matchedItem = found
                 ScanWorkflowMode.ADJUST_STOCK -> showAdjustDialogForItem = found
                 ScanWorkflowMode.INVOICE -> {
-                    Toast.makeText(context, "Added ${found.name} to invoice!", Toast.LENGTH_SHORT).show()
+                    val label = if (matchedBrandName != null) "${found.name} ($matchedBrandName)" else found.name
+                    Toast.makeText(context, "Added $label to invoice!", Toast.LENGTH_SHORT).show()
                     onNavigateToCreateInvoiceWithItem(found.id)
                 }
             }

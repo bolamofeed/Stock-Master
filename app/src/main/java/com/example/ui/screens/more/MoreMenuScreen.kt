@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warehouse
 import androidx.compose.material3.Card
@@ -66,6 +67,8 @@ fun MoreMenuScreen(
     viewModel: InventoryViewModel,
     onNavigateToWarehouses: () -> Unit,
     onNavigateToSuppliers: () -> Unit,
+    onNavigateToCustomers: () -> Unit,
+    onNavigateToBrands: () -> Unit,
     onNavigateToAuditLog: () -> Unit
 ) {
     val context = LocalContext.current
@@ -247,6 +250,22 @@ fun MoreMenuScreen(
                             subtitle = "Vendor contacts, catalogs, and purchasing channels",
                             onClick = onNavigateToSuppliers,
                             tag = "nav_suppliers"
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        MoreNavigationRow(
+                            icon = Icons.Default.People,
+                            title = if (isArabic) "العملاء" else "Customers",
+                            subtitle = if (isArabic) "سجل المشتريات والعملاء غير النشطين" else "Customer directory, history & inactive (3+ mo) alerts",
+                            onClick = onNavigateToCustomers,
+                            tag = "nav_customers"
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        MoreNavigationRow(
+                            icon = Icons.Default.Sell,
+                            title = if (isArabic) "العلامات التجارية والأسعار" else "Brands & Pricing",
+                            subtitle = if (isArabic) "إدارة العلامات والأسعار وأداة الترحيل" else "Brand catalog, minor units pricing & migration tool",
+                            onClick = onNavigateToBrands,
+                            tag = "nav_brands"
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         MoreNavigationRow(

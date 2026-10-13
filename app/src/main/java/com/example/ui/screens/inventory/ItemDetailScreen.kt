@@ -56,7 +56,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.CurrencyUtils
 import com.example.data.model.Item
+import com.example.data.model.ItemBrand
 import com.example.ui.components.Code128BarcodeView
 import com.example.ui.components.QrCodeView
 import com.example.ui.screens.dashboard.StockMovementRow
@@ -218,6 +220,88 @@ fun ItemDetailScreen(
                             DetailItem(title = "Min Stock Level", value = "${item.minStock} ${item.unit}")
                             DetailItem(title = "Warehouse", value = item.warehouse)
                             DetailItem(title = "Supplier", value = item.supplier.ifEmpty { "N/A" })
+                        }
+                    }
+                }
+            }
+
+            // Brands & Prices Section
+            if (item.brandsJson.isNotBlank()) {
+                val itemBrands = item.brandsJson.split("##").mapNotNull { ItemBrand.deserialize(it) }
+                if (itemBrands.isNotEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Brand Variations (${itemBrands.size})",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                    Surface(
+                                        color = PrimaryBlue.copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${item.quantity} ${item.unit} total",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = PrimaryBlue,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+
+                                for (b in itemBrands) {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(b.brandName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                Text("Barcode: ${b.barcode} • Stock: ${b.quantity} ${item.unit}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+
+                                            Column(horizontalAlignment = Alignment.End) {
+                                                Text(
+                                                    "$currency%.2f".format(b.salePriceMajor),
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 13.sp,
+                                                    color = PrimaryBlue
+                                                )
+                                                if (user.role.canSeePurchasePrice) {
+                                                    Text(
+                                                        "Cost: $currency%.2f".format(b.costPriceMajor),
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

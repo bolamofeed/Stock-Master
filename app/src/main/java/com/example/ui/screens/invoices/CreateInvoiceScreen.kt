@@ -63,6 +63,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -84,9 +85,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.CurrencyUtils
 import com.example.data.model.InvoiceLineItem
 import com.example.data.model.InvoiceType
 import com.example.data.model.Item
+import com.example.data.model.ItemBrand
 import com.example.ui.components.Code128BarcodeView
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.DangerRed
@@ -118,7 +121,7 @@ fun CreateInvoiceScreen(
     // Clients directory from ViewModel
     val existingClients by viewModel.allClients.collectAsState()
     var showCustomerSelectDialog by remember { mutableStateOf(false) }
-    var autoAddClientToDatabase by remember { mutableStateOf(true) }
+    var saveCustomer by remember { mutableStateOf(true) }
 
     // State for the two item addition options
     var showSearchDialog by remember { mutableStateOf(false) }
@@ -142,16 +145,30 @@ fun CreateInvoiceScreen(
         }
     }
 
-    // Helper to add item by Item object
-    fun addItemToInvoice(item: Item, quantityToAdd: Int = 1) {
-        val existingIndex = lineItems.indexOfFirst { it.itemId == item.id }
-        val price = if (invoiceType == InvoiceType.SALES) item.salePrice else item.costPrice
+    var pendingItemForBrandSelection by remember { mutableStateOf<Item?>(null) }
+
+    // Helper to add item by Item object and optional ItemBrand variation
+    fun addItemToInvoice(item: Item, brand: ItemBrand? = null, quantityToAdd: Int = 1) {
+        val brandId = brand?.brandId ?: ""
+        val brandName = brand?.brandName ?: ""
+        val unitPrice = if (brand != null) {
+            if (invoiceType == InvoiceType.SALES) brand.salePriceMajor else brand.costPriceMajor
+        } else {
+            if (invoiceType == InvoiceType.SALES) item.salePrice else item.costPrice
+        }
+        val unitPriceMinor = if (brand != null) {
+            if (invoiceType == InvoiceType.SALES) brand.salePriceMinor else brand.costPriceMinor
+        } else {
+            CurrencyUtils.toMinorUnits(unitPrice)
+        }
+
+        val existingIndex = lineItems.indexOfFirst { it.itemId == item.id && it.brandId == brandId }
         if (existingIndex >= 0) {
             val existing = lineItems[existingIndex]
             val newQty = existing.quantity + quantityToAdd
             lineItems[existingIndex] = existing.copy(
                 quantity = newQty,
-                total = newQty * price
+                total = newQty * unitPrice
             )
         } else {
             lineItems.add(
@@ -159,9 +176,13 @@ fun CreateInvoiceScreen(
                     itemId = item.id,
                     itemName = item.name,
                     sku = item.sku,
-                    unitPrice = price,
+                    unitPrice = unitPrice,
                     quantity = quantityToAdd,
-                    total = quantityToAdd * price
+                    returnedQuantity = 0,
+                    total = quantityToAdd * unitPrice,
+                    brandId = brandId,
+                    brandName = brandName,
+                    unitPriceMinor = unitPriceMinor
                 )
             )
         }
@@ -294,7 +315,7 @@ fun CreateInvoiceScreen(
                             modifier = Modifier.fillMaxWidth().testTag("invoice_entity_contact_input")
                         )
 
-                        // If sales invoice and entityName or phone entered, show auto-add to clients database toggle
+                        // Toggle 'Save customer' in Sales Invoice
                         if (invoiceType == InvoiceType.SALES) {
                             val isExistingClient = existingClients.any {
                                 it.name.equals(entityName.trim(), ignoreCase = true) ||
@@ -302,52 +323,77 @@ fun CreateInvoiceScreen(
                             }
 
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isExistingClient) EmeraldGreen.copy(alpha = 0.12f) else PrimaryBlue.copy(alpha = 0.08f)
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (saveCustomer) PrimaryBlue.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = 1.dp,
+                                    color = if (saveCustomer) PrimaryBlue.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant
+                                )
                             ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         Icon(
-                                            imageVector = if (isExistingClient) Icons.Default.CheckCircle else Icons.Default.PersonAdd,
+                                            imageVector = if (saveCustomer) Icons.Default.PersonAdd else Icons.Default.Person,
                                             contentDescription = null,
-                                            tint = if (isExistingClient) EmeraldGreen else PrimaryBlue,
-                                            modifier = Modifier.size(18.dp)
+                                            tint = if (saveCustomer) PrimaryBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp)
                                         )
                                         Column {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Save customer",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = if (saveCustomer) PrimaryBlue else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                if (isExistingClient) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = EmeraldGreen.copy(alpha = 0.15f)
+                                                    ) {
+                                                        Text(
+                                                            text = "Existing Record",
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = EmeraldGreen,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
                                             Text(
-                                                text = if (isExistingClient) "Known Client Detected" else "New Client Auto-Registration",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 12.sp,
-                                                color = if (isExistingClient) EmeraldGreen else PrimaryBlue
-                                            )
-                                            Text(
-                                                text = if (isExistingClient)
-                                                    "Will update purchase history & last purchase date."
-                                                else
-                                                    "Automatically saves name & phone to client directory upon invoice creation.",
+                                                text = if (saveCustomer) {
+                                                    if (isExistingClient)
+                                                        "Updates customer purchase history and date via database transaction."
+                                                    else
+                                                        "Creates new customer record in database via transaction to maintain data integrity."
+                                                } else {
+                                                    "Inactive: invoice will be processed without saving or updating customer record."
+                                                },
                                                 fontSize = 10.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
 
-                                    if (!isExistingClient) {
-                                        Checkbox(
-                                            checked = autoAddClientToDatabase,
-                                            onCheckedChange = { autoAddClientToDatabase = it },
-                                            modifier = Modifier.testTag("auto_add_client_checkbox")
-                                        )
-                                    }
+                                    Switch(
+                                        checked = saveCustomer,
+                                        onCheckedChange = { saveCustomer = it },
+                                        modifier = Modifier.testTag("save_customer_toggle")
+                                    )
                                 }
                             }
                         }
@@ -464,11 +510,30 @@ fun CreateInvoiceScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(lineItem.itemName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text(
-                                    "SKU: ${lineItem.sku} • $currency%.2f each".format(lineItem.unitPrice),
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    if (lineItem.brandName.isNotBlank()) {
+                                        Surface(
+                                            color = PrimaryBlue.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = lineItem.brandName,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = PrimaryBlue,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        "SKU: ${lineItem.sku} • $currency%.2f each".format(lineItem.unitPrice),
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
 
                             // Qty Buttons (+ / - / Delete)
@@ -624,7 +689,8 @@ fun CreateInvoiceScreen(
                             taxPercent = taxPercent,
                             discountPercent = discountPercent,
                             notes = notes.trim(),
-                            markAsPaid = markPaidAndUpdateStock
+                            markAsPaid = markPaidAndUpdateStock,
+                            saveCustomer = saveCustomer
                         ) { result ->
                             result.onSuccess {
                                 Toast.makeText(context, "Invoice created & stock synced!", Toast.LENGTH_SHORT).show()
@@ -656,7 +722,20 @@ fun CreateInvoiceScreen(
                 invoiceType = invoiceType,
                 currencySymbol = currency,
                 lineItems = lineItems,
-                onAddItem = { item -> addItemToInvoice(item) },
+                onAddItem = { item ->
+                    val brands = if (item.brandsJson.isNotBlank()) {
+                        item.brandsJson.split("##").mapNotNull { ItemBrand.deserialize(it) }
+                    } else emptyList()
+
+                    if (brands.size > 1) {
+                        pendingItemForBrandSelection = item
+                        showSearchDialog = false
+                    } else if (brands.size == 1) {
+                        addItemToInvoice(item, brands.first())
+                    } else {
+                        addItemToInvoice(item, null)
+                    }
+                },
                 onDismiss = { showSearchDialog = false }
             )
         }
@@ -667,11 +746,49 @@ fun CreateInvoiceScreen(
                 catalogItems = catalogItems,
                 invoiceType = invoiceType,
                 currencySymbol = currency,
-                onBarcodeScanned = { scannedItem ->
-                    addItemToInvoice(scannedItem)
-                    Toast.makeText(context, "Added ${scannedItem.name} to invoice!", Toast.LENGTH_SHORT).show()
+                onBarcodeScanned = { scannedItem, matchedBrand ->
+                    if (matchedBrand != null) {
+                        addItemToInvoice(scannedItem, matchedBrand)
+                        Toast.makeText(context, "Added ${scannedItem.name} (${matchedBrand.brandName}) to invoice!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val brands = if (scannedItem.brandsJson.isNotBlank()) {
+                            scannedItem.brandsJson.split("##").mapNotNull { ItemBrand.deserialize(it) }
+                        } else emptyList()
+
+                        if (brands.size > 1) {
+                            pendingItemForBrandSelection = scannedItem
+                            showBarcodeDialog = false
+                        } else if (brands.size == 1) {
+                            addItemToInvoice(scannedItem, brands.first())
+                            Toast.makeText(context, "Added ${scannedItem.name} to invoice!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            addItemToInvoice(scannedItem, null)
+                            Toast.makeText(context, "Added ${scannedItem.name} to invoice!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 },
                 onDismiss = { showBarcodeDialog = false }
+            )
+        }
+
+        // DIALOG OPTION 2.5: Brand Selection Modal for multi-brand items
+        if (pendingItemForBrandSelection != null) {
+            val item = pendingItemForBrandSelection!!
+            val itemBrands = if (item.brandsJson.isNotBlank()) {
+                item.brandsJson.split("##").mapNotNull { ItemBrand.deserialize(it) }
+            } else emptyList()
+
+            BrandSelectionDialog(
+                item = item,
+                brands = itemBrands,
+                invoiceType = invoiceType,
+                currencySymbol = currency,
+                onSelectBrand = { brand ->
+                    addItemToInvoice(item, brand)
+                    pendingItemForBrandSelection = null
+                    Toast.makeText(context, "Added ${item.name} (${brand.brandName})!", Toast.LENGTH_SHORT).show()
+                },
+                onDismiss = { pendingItemForBrandSelection = null }
             )
         }
 
@@ -1046,7 +1163,7 @@ fun BarcodeScanDialog(
     catalogItems: List<Item>,
     invoiceType: InvoiceType,
     currencySymbol: String,
-    onBarcodeScanned: (Item) -> Unit,
+    onBarcodeScanned: (Item, ItemBrand?) -> Unit,
     onDismiss: () -> Unit
 ) {
     var manualBarcode by remember { mutableStateOf("") }
@@ -1057,14 +1174,37 @@ fun BarcodeScanDialog(
         val trimmed = code.trim()
         if (trimmed.isEmpty()) return
 
-        val matched = catalogItems.find {
-            it.barcode.equals(trimmed, ignoreCase = true) ||
-            it.sku.equals(trimmed, ignoreCase = true)
+        // 1. Check brand-level barcodes across all catalog items
+        var matchedItem: Item? = null
+        var matchedBrand: ItemBrand? = null
+
+        for (item in catalogItems) {
+            if (item.brandsJson.isNotBlank()) {
+                val brands = item.brandsJson.split("##").mapNotNull { ItemBrand.deserialize(it) }
+                val brand = brands.find { it.barcode.equals(trimmed, ignoreCase = true) }
+                if (brand != null) {
+                    matchedItem = item
+                    matchedBrand = brand
+                    break
+                }
+            }
         }
 
-        if (matched != null) {
-            onBarcodeScanned(matched)
-            scanResultFeedback = "Added: ${matched.name} (${matched.sku})"
+        // 2. Fallback to master item barcode or SKU
+        if (matchedItem == null) {
+            matchedItem = catalogItems.find {
+                it.barcode.equals(trimmed, ignoreCase = true) ||
+                it.sku.equals(trimmed, ignoreCase = true)
+            }
+        }
+
+        if (matchedItem != null) {
+            onBarcodeScanned(matchedItem, matchedBrand)
+            scanResultFeedback = if (matchedBrand != null) {
+                "Added: ${matchedItem.name} [${matchedBrand.brandName}]"
+            } else {
+                "Added: ${matchedItem.name} (${matchedItem.sku})"
+            }
             isError = false
             manualBarcode = ""
         } else {
@@ -1266,3 +1406,97 @@ fun BarcodeScanDialog(
         }
     )
 }
+
+/**
+ * Brand Selection Dialog when an item has multiple brand variations.
+ */
+@Composable
+fun BrandSelectionDialog(
+    item: Item,
+    brands: List<ItemBrand>,
+    invoiceType: InvoiceType,
+    currencySymbol: String,
+    onSelectBrand: (ItemBrand) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Select Brand Variation", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(item.name, fontSize = 12.sp, color = PrimaryBlue, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "Pick the specific brand for this invoice line:",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(brands, key = { it.id }) { brand ->
+                        val price = if (invoiceType == InvoiceType.SALES) brand.salePriceMajor else brand.costPriceMajor
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectBrand(brand) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(brand.brandName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("Barcode: ${brand.barcode} • In Stock: ${brand.quantity}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        "$currencySymbol%.2f".format(price),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.sp,
+                                        color = PrimaryBlue
+                                    )
+                                    Surface(
+                                        color = PrimaryBlue.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            "+ Select",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = PrimaryBlue,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+

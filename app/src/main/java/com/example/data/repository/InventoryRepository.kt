@@ -15,11 +15,16 @@ import com.example.data.model.StockMovement
 import com.example.data.model.Supplier
 import com.example.data.model.UserRole
 import com.example.data.model.Warehouse
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import java.util.UUID
 
 class InventoryRepository(private val db: AppDatabase) {
+
+    val brandRepository = BrandRepository(db)
+    val allBrands: Flow<List<com.example.data.model.Brand>> = brandRepository.allBrands
+    val activeBrands: Flow<List<com.example.data.model.Brand>> = brandRepository.activeBrands
 
     val allItems: Flow<List<Item>> = db.itemDao().getAllItems()
     val lowStockItems: Flow<List<Item>> = db.itemDao().getLowStockItems()
@@ -36,34 +41,63 @@ class InventoryRepository(private val db: AppDatabase) {
         db.clientDao().insertClient(client)
     }
 
+    suspend fun updateClient(client: Client) {
+        db.clientDao().updateClient(client)
+    }
+
+    suspend fun softDeleteClient(clientId: String, user: String = "Admin", role: String = "ADMIN") {
+        val client = db.clientDao().getClientById(clientId) ?: return
+        db.clientDao().updateClient(client.copy(isDeleted = true))
+        val log = AuditLog(
+            id = UUID.randomUUID().toString(),
+            action = "CUSTOMER_DELETED",
+            details = "Soft deleted customer: ${client.name} (${client.phone})",
+            userId = user,
+            userRole = role
+        )
+        db.auditLogDao().insertAuditLog(log)
+    }
+
+    suspend fun markClientContacted(clientId: String) {
+        val client = db.clientDao().getClientById(clientId) ?: return
+        db.clientDao().updateClient(client.copy(lastContactedAt = System.currentTimeMillis()))
+    }
+
+    fun getInvoicesForCustomer(name: String, phone: String): Flow<List<Invoice>> =
+        db.invoiceDao().getSalesInvoicesForClient(name, phone)
+
     suspend fun recordOrUpdateClientFromInvoice(name: String, phone: String, invoiceAmount: Double) {
         val cleanName = name.trim()
         val cleanPhone = phone.trim()
         if (cleanName.isBlank()) return
 
-        val existing = db.clientDao().getClientByName(cleanName)
-            ?: if (cleanPhone.isNotBlank()) db.clientDao().getClientByPhone(cleanPhone) else null
+        db.withTransaction {
+            val existing = db.clientDao().getClientByName(cleanName)
+                ?: if (cleanPhone.isNotBlank()) db.clientDao().getClientByPhone(cleanPhone) else null
 
-        val now = System.currentTimeMillis()
-        if (existing != null) {
-            val updated = existing.copy(
-                phone = if (cleanPhone.isNotBlank()) cleanPhone else existing.phone,
-                totalPurchasesAmount = existing.totalPurchasesAmount + invoiceAmount,
-                invoicesCount = existing.invoicesCount + 1,
-                lastPurchaseDate = now
-            )
-            db.clientDao().updateClient(updated)
-        } else {
-            val newClient = Client(
-                id = UUID.randomUUID().toString(),
-                name = cleanName,
-                phone = cleanPhone,
-                totalPurchasesAmount = invoiceAmount,
-                invoicesCount = 1,
-                lastPurchaseDate = now,
-                createdAt = now
-            )
-            db.clientDao().insertClient(newClient)
+            val now = System.currentTimeMillis()
+            if (existing != null) {
+                val updated = existing.copy(
+                    phone = if (cleanPhone.isNotBlank()) cleanPhone else existing.phone,
+                    totalPurchasesAmount = existing.totalPurchasesAmount + invoiceAmount,
+                    invoicesCount = existing.invoicesCount + 1,
+                    lastPurchaseDate = now,
+                    isDeleted = false
+                )
+                db.clientDao().updateClient(updated)
+            } else {
+                val newClient = Client(
+                    id = UUID.randomUUID().toString(),
+                    name = cleanName,
+                    phone = cleanPhone,
+                    totalPurchasesAmount = invoiceAmount,
+                    invoicesCount = 1,
+                    lastPurchaseDate = now,
+                    createdAt = now,
+                    isDeleted = false
+                )
+                db.clientDao().insertClient(newClient)
+            }
         }
     }
 
@@ -86,6 +120,39 @@ class InventoryRepository(private val db: AppDatabase) {
         db.auditLogDao().insertAuditLog(log)
 
         checkAndTriggerLowStockAlert(item)
+    }
+
+    suspend fun saveItemWithBrands(
+        item: Item,
+        brands: List<com.example.data.model.ItemBrand>,
+        user: String,
+        role: String,
+        isNew: Boolean
+    ) {
+        val totalQty = if (brands.isNotEmpty()) brands.sumOf { it.quantity } else item.quantity
+        val serializedBrands = brands.joinToString("##") { it.serialize() }
+        val itemToSave = item.copy(
+            quantity = totalQty,
+            brandsJson = serializedBrands,
+            updatedAt = System.currentTimeMillis()
+        )
+
+        db.withTransaction {
+            db.itemDao().insertItem(itemToSave)
+            brandRepository.saveItemBrands(item.id, brands, user, role)
+        }
+
+        val action = if (isNew) "ITEM_CREATED" else "ITEM_UPDATED"
+        val log = AuditLog(
+            id = UUID.randomUUID().toString(),
+            action = action,
+            details = "${if (isNew) "Added" else "Updated"} item ${itemToSave.name} (${itemToSave.sku}) with ${brands.size} brands - Total Qty: $totalQty",
+            userId = user,
+            userRole = role
+        )
+        db.auditLogDao().insertAuditLog(log)
+
+        checkAndTriggerLowStockAlert(itemToSave)
     }
 
     suspend fun deleteItem(item: Item, user: String, role: String) {
@@ -166,7 +233,8 @@ class InventoryRepository(private val db: AppDatabase) {
         notes: String,
         user: String,
         role: String,
-        markAsPaid: Boolean = true
+        markAsPaid: Boolean = true,
+        saveCustomer: Boolean = true
     ): Result<Invoice> {
         if (lineItems.isEmpty()) {
             return Result.failure(IllegalArgumentException("Invoice must contain at least 1 item"))
@@ -201,11 +269,13 @@ class InventoryRepository(private val db: AppDatabase) {
             itemsJson = summaryItems
         )
 
-        db.invoiceDao().insertInvoice(invoice)
+        db.withTransaction {
+            db.invoiceDao().insertInvoice(invoice)
 
-        // Automatically record or update client data when making a sales invoice
-        if (type == InvoiceType.SALES) {
-            recordOrUpdateClientFromInvoice(invoice.entityName, invoice.entityContact, invoice.totalAmount)
+            // Transactionally create or update client record when saveCustomer toggle is active
+            if (type == InvoiceType.SALES && saveCustomer) {
+                recordOrUpdateClientFromInvoice(invoice.entityName, invoice.entityContact, invoice.totalAmount)
+            }
         }
 
         // If confirmed/paid, update inventory automatically
@@ -339,15 +409,45 @@ class InventoryRepository(private val db: AppDatabase) {
     ) {
         for (line in lineItems) {
             val item = db.itemDao().getItemById(line.itemId) ?: continue
-            val movementType = if (invoice.type == InvoiceType.SALES) MovementType.STOCK_OUT else MovementType.STOCK_IN
-            recordStockMovement(
-                item = item,
-                type = movementType,
-                quantityChange = line.quantity,
-                user = user,
-                role = role,
-                note = "Automated from ${invoice.invoiceNumber}"
-            )
+            val isSales = invoice.type == InvoiceType.SALES
+            val delta = if (isSales) -line.quantity else line.quantity
+
+            if (line.brandId.isNotBlank()) {
+                val itemBrands = db.itemBrandDao().getItemBrandsByItemId(item.id)
+                val targetBrand = itemBrands.find { it.brandId == line.brandId }
+                if (targetBrand != null) {
+                    val newBrandQty = (targetBrand.quantity + delta).coerceAtLeast(0)
+                    db.itemBrandDao().updateItemBrandQuantity(targetBrand.id, newBrandQty)
+
+                    // Track low-stock alert per brand
+                    if (newBrandQty <= targetBrand.minStock) {
+                        val brandAlert = AppNotification(
+                            id = UUID.randomUUID().toString(),
+                            title = if (newBrandQty == 0) "Brand Out of Stock" else "Brand Low Stock Warning",
+                            body = "Brand '${line.brandName}' for product '${item.name}' has $newBrandQty units left (Min: ${targetBrand.minStock}).",
+                            severity = if (newBrandQty == 0) NotificationSeverity.DANGER else NotificationSeverity.WARNING,
+                            itemId = item.id
+                        )
+                        db.notificationDao().insertNotification(brandAlert)
+                    }
+                }
+                // Roll up quantity per item
+                val updatedBrands = db.itemBrandDao().getItemBrandsByItemId(item.id)
+                val totalQty = updatedBrands.sumOf { it.quantity }
+                val updatedItem = item.copy(quantity = totalQty, updatedAt = System.currentTimeMillis())
+                db.itemDao().updateItem(updatedItem)
+                checkAndTriggerLowStockAlert(updatedItem)
+            } else {
+                val movementType = if (isSales) MovementType.STOCK_OUT else MovementType.STOCK_IN
+                recordStockMovement(
+                    item = item,
+                    type = movementType,
+                    quantityChange = line.quantity,
+                    user = user,
+                    role = role,
+                    note = "Automated from ${invoice.invoiceNumber}"
+                )
+            }
         }
     }
 
@@ -648,6 +748,17 @@ class InventoryRepository(private val db: AppDatabase) {
                 invoicesCount = 1,
                 lastPurchaseDate = now - (oneMonth * 1), // 1 month ago (Active)
                 createdAt = now - (oneMonth * 3)
+            ),
+            Client(
+                id = UUID.randomUUID().toString(),
+                name = "Delta Electronics Corp",
+                phone = "+1 (555) 881-2299",
+                email = "contact@deltaelec.org",
+                address = "55 Industrial Boulevard, Zone 4",
+                totalPurchasesAmount = 14200.00,
+                invoicesCount = 5,
+                lastPurchaseDate = now - (oneMonth * 13), // 13 months ago (> 12 months inactive!)
+                createdAt = now - (oneMonth * 18)
             )
         )
         db.clientDao().insertClients(initialClients)

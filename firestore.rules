@@ -2,14 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions for Role-Based Access Control (RBAC)
+    // Helper functions for zero-trust RBAC
     function isAuthenticated() {
       return request.auth != null;
     }
 
     function getUserRole() {
-      return request.auth.token.role != null ? request.auth.token.role :
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return request.auth.token.role;
     }
 
     function isAdmin() {
@@ -20,85 +19,180 @@ service cloud.firestore {
       return isAuthenticated() && (getUserRole() == 'manager' || isAdmin());
     }
 
-    function isVendor() {
-      return isAuthenticated() && getUserRole() == 'vendor';
-    }
-
     function isCashier() {
       return isAuthenticated() && getUserRole() == 'cashier';
     }
 
-    function isAuditor() {
-      return isAuthenticated() && getUserRole() == 'auditor';
+    function isVendor() {
+      return isAuthenticated() && getUserRole() == 'vendor';
     }
 
-    // 1. Users collection
-    match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isManager());
-      allow create, update, delete: if isAdmin();
+    function isViewer() {
+      return isAuthenticated() && getUserRole() == 'viewer';
     }
 
-    // 2. Items / Inventory
+    // 1. Items Collection (Catalog)
     match /items/{itemId} {
-      // Vendor only sees items from their assigned supplier
       allow read: if isAuthenticated() && (
         !isVendor() ||
-        resource.data.supplierId == request.auth.token.supplierId ||
-        resource.data.supplier == request.auth.token.supplierName
+        resource.data.cid == request.auth.token.allowedCategoryId
       );
-      // Only Admin and Manager can create, update, or delete items
-      allow create, update, delete: if isManager();
+
+      // Writes restricted to Admin and Manager with schema and bounds validation
+      allow create, update: if isManager()
+        && request.resource.data.n is string
+        && request.resource.data.n.size() >= 2
+        && request.resource.data.n.size() <= 80
+        && request.resource.data.nl is string
+        && request.resource.data.cid is string
+        && request.resource.data.tq is int
+        && request.resource.data.tq >= 0
+        && request.resource.data.ls is bool
+        && request.resource.data.b is list
+        && request.resource.data.b.size() <= 30
+        && (!('ca' in resource.data) || request.resource.data.ca == resource.data.ca);
+
+      allow delete: if isAdmin();
     }
 
-    // 3. Stock Movements (Immutable audit log of stock deltas)
-    match /stockMovements/{movementId} {
-      allow read: if isAuthenticated() && (!isVendor() || resource.data.userId == request.auth.uid);
-      allow create: if isManager() || (isCashier() && request.resource.data.type == 'STOCK_OUT');
-      allow update, delete: if false; // Movements are strictly immutable
+    // 2. Item Costs Collection (Isolated data-level security - costs hidden from Cashier/Vendor)
+    match /itemCosts/{itemId} {
+      allow read: if isManager();
+      allow write: if isManager()
+        && request.resource.data.b is list
+        && request.resource.data.b.size() <= 30;
+      allow delete: if isAdmin();
     }
 
-    // 4. Invoices
+    // 3. Invoices Collection
     match /invoices/{invoiceId} {
       allow read: if isAuthenticated() && (
-        isAdmin() || isManager() || isAuditor() ||
-        (isCashier() && resource.data.createdBy == request.auth.uid) ||
-        (isVendor() && resource.data.entityName == request.auth.token.supplierName)
+        isManager() ||
+        (isCashier() && resource.data.cb == request.auth.uid) ||
+        (isVendor() && resource.data.eid == request.auth.token.supplierId)
       );
-      allow create: if isManager() || (isCashier() && request.resource.data.type == 'SALES');
+
+      allow create: if (isManager() || isCashier())
+        && request.resource.data.no is string
+        && request.resource.data.t is int
+        && request.resource.data.t in [1, 2, 3]
+        && request.resource.data.s is int
+        && request.resource.data.s in [1, 2, 3]
+        && request.resource.data.tot is int
+        && request.resource.data.tot >= 0
+        && request.resource.data.l is list
+        && request.resource.data.l.size() > 0
+        && request.resource.data.l.size() <= 100
+        && request.resource.data.cb == request.auth.uid;
+
       allow update: if isManager();
       allow delete: if isAdmin();
     }
 
-    // 5. Warehouses & Suppliers
-    match /warehouses/{warehouseId} {
-      allow read: if isAuthenticated();
-      allow write: if isManager();
+    // 4. Customers Collection
+    match /customers/{customerId} {
+      allow read: if isAuthenticated() && !isVendor();
+      allow create: if (isManager() || isCashier())
+        && request.resource.data.n is string
+        && request.resource.data.n.size() >= 2
+        && request.resource.data.n.size() <= 80
+        && request.resource.data.p is string
+        && request.resource.data.p.size() >= 8
+        && request.resource.data.p.size() <= 20
+        && request.resource.data.tp is int
+        && request.resource.data.tp >= 0
+        && request.resource.data.ic is int
+        && request.resource.data.ic >= 0;
+
+      allow update: if isManager();
+      allow delete: if isAdmin();
     }
 
+    // 5. Suppliers Collection
     match /suppliers/{supplierId} {
+      allow read: if isAuthenticated() && (
+        isManager() ||
+        (isVendor() && supplierId == request.auth.token.supplierId)
+      );
+      allow write: if isManager()
+        && request.resource.data.n is string
+        && request.resource.data.n.size() >= 2
+        && request.resource.data.n.size() <= 80;
+      allow delete: if isAdmin();
+    }
+
+    // 6. Categories Collection
+    match /categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager()
+        && request.resource.data.n is string
+        && request.resource.data.n.size() >= 2
+        && request.resource.data.n.size() <= 50;
+      allow delete: if isManager();
+    }
+
+    // 7. Brands Collection (Catalog metadata - Cashier & Viewer can select, Vendor limited to own items)
+    match /brands/{brandId} {
+      allow read: if isAuthenticated() && (
+        !isVendor() ||
+        request.auth.token.allowedBrandIds == null ||
+        brandId in request.auth.token.allowedBrandIds
+      );
+      // Admin and Manager can add, edit, and deactivate brands
+      allow create, update: if isManager()
+        && request.resource.data.n is string
+        && request.resource.data.n.size() >= 2
+        && request.resource.data.n.size() <= 50
+        && request.resource.data.nl is string
+        && request.resource.data.sp is int
+        && request.resource.data.sp >= 0
+        && request.resource.data.st in [0, 1];
+      // Block hard deletion when brand is used by items (itemCount > 0)
+      allow delete: if isAdmin() && (!('itemCount' in resource.data) || resource.data.itemCount == 0);
+    }
+
+    // 8. Brand Costs Collection (Isolated at data level - cost prices strictly hidden from Cashier and Vendor)
+    match /brandCosts/{brandId} {
+      allow read: if isManager();
+      allow write: if isManager()
+        && request.resource.data.cp is int
+        && request.resource.data.cp >= 0;
+      allow delete: if isAdmin();
+    }
+
+    // 7. Stats Singleton Summary
+    match /stats/summary {
       allow read: if isAuthenticated();
       allow write: if isManager();
     }
 
-    // 6. Notifications
-    match /notifications/{notificationId} {
-      allow read, update, delete: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || isManager()
-      );
-      allow create: if isAuthenticated();
+    // 8. Users Collection
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isManager());
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
-    // 7. Audit Logs
+    // 9. Audit Logs (Strictly Immutable, append-only)
     match /auditLogs/{logId} {
-      allow read: if isManager() || isAuditor();
-      allow create: if isAuthenticated();
-      allow update, delete: if false; // Append-only audit security
+      allow read: if isManager();
+      allow create: if isAuthenticated()
+        && request.resource.data.act is string
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
     }
 
-    // 8. Global Settings
-    match /settings/{settingId} {
+    // 10. Notifications
+    match /notifications/{notificationId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isManager();
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

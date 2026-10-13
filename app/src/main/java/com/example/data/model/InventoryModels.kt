@@ -20,6 +20,7 @@ data class Item(
     val supplier: String = "",
     val warehouse: String = "Main Warehouse",
     val expiryDate: String = "",
+    val brandsJson: String = "",
     val updatedAt: Long = System.currentTimeMillis()
 ) {
     val isLowStock: Boolean get() = quantity in 1..minStock
@@ -111,23 +112,36 @@ data class InvoiceLineItem(
     val unitPrice: Double,
     val quantity: Int,
     val returnedQuantity: Int = 0,
-    val total: Double = unitPrice * quantity
+    val total: Double = unitPrice * quantity,
+    val brandId: String = "",
+    val brandName: String = "",
+    val unitPriceMinor: Long = CurrencyUtils.toMinorUnits(unitPrice)
 ) {
     val remainingQuantity: Int get() = (quantity - returnedQuantity).coerceAtLeast(0)
 
-    fun serialize(): String = "$itemId@@$itemName@@$sku@@$unitPrice@@$quantity@@$returnedQuantity"
+    fun serialize(): String = "$itemId@@$itemName@@$sku@@$unitPrice@@$quantity@@$returnedQuantity@@$brandId@@$brandName@@$unitPriceMinor"
 
     companion object {
         fun deserialize(str: String): InvoiceLineItem? {
             val parts = str.split("@@")
             if (parts.size >= 5) {
+                val unitPrice = parts[3].toDoubleOrNull() ?: 0.0
+                val quantity = parts[4].toIntOrNull() ?: 1
+                val retQty = if (parts.size >= 6) parts[5].toIntOrNull() ?: 0 else 0
+                val brandId = if (parts.size >= 7) parts[6] else ""
+                val brandName = if (parts.size >= 8) parts[7] else ""
+                val minor = if (parts.size >= 9) parts[8].toLongOrNull() ?: CurrencyUtils.toMinorUnits(unitPrice) else CurrencyUtils.toMinorUnits(unitPrice)
                 return InvoiceLineItem(
                     itemId = parts[0],
                     itemName = parts[1],
                     sku = parts[2],
-                    unitPrice = parts[3].toDoubleOrNull() ?: 0.0,
-                    quantity = parts[4].toIntOrNull() ?: 1,
-                    returnedQuantity = if (parts.size >= 6) parts[5].toIntOrNull() ?: 0 else 0
+                    unitPrice = unitPrice,
+                    quantity = quantity,
+                    returnedQuantity = retQty,
+                    total = unitPrice * quantity,
+                    brandId = brandId,
+                    brandName = brandName,
+                    unitPriceMinor = minor
                 )
             }
             return null
@@ -194,6 +208,98 @@ data class Client(
     val totalPurchasesAmount: Double = 0.0,
     val invoicesCount: Int = 0,
     val lastPurchaseDate: Long = 0L, // 0L if never or historical timestamp
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val isDeleted: Boolean = false,
+    val lastContactedAt: Long = 0L
 )
+
+@Entity(
+    tableName = "brands",
+    indices = [
+        androidx.room.Index(value = ["nameLower"], unique = true)
+    ]
+)
+data class Brand(
+    @PrimaryKey
+    val id: String,
+    val name: String,
+    val nameLower: String,
+    val defaultCostPriceMinor: Long, // in minor units / piastres (e.g. 1500 = 15.00)
+    val defaultSalePriceMinor: Long, // in minor units / piastres (e.g. 2500 = 25.00)
+    val status: Int = 1, // 1 = Active, 0 = Deactivated
+    val itemCount: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    val isActive: Boolean get() = status == 1
+    val defaultCostPriceMajor: Double get() = defaultCostPriceMinor / 100.0
+    val defaultSalePriceMajor: Double get() = defaultSalePriceMinor / 100.0
+}
+
+@Entity(
+    tableName = "item_brands",
+    indices = [
+        androidx.room.Index(value = ["barcode"]),
+        androidx.room.Index(value = ["itemId"]),
+        androidx.room.Index(value = ["brandId"])
+    ]
+)
+data class ItemBrand(
+    @PrimaryKey
+    val id: String,
+    val itemId: String,
+    val brandId: String,
+    val brandName: String,
+    val barcode: String,
+    val costPriceMinor: Long, // in minor units / piastres
+    val salePriceMinor: Long, // in minor units / piastres
+    val quantity: Int,
+    val minStock: Int = 5,
+    val status: Int = 1
+) {
+    val costPriceMajor: Double get() = costPriceMinor / 100.0
+    val salePriceMajor: Double get() = salePriceMinor / 100.0
+    val isLowStock: Boolean get() = quantity in 1..minStock
+    val isOutOfStock: Boolean get() = quantity <= 0
+
+    fun serialize(): String = "$id@@$itemId@@$brandId@@$brandName@@$barcode@@$costPriceMinor@@$salePriceMinor@@$quantity@@$minStock@@$status"
+
+    companion object {
+        fun deserialize(str: String): ItemBrand? {
+            val parts = str.split("@@")
+            if (parts.size >= 10) {
+                return ItemBrand(
+                    id = parts[0],
+                    itemId = parts[1],
+                    brandId = parts[2],
+                    brandName = parts[3],
+                    barcode = parts[4],
+                    costPriceMinor = parts[5].toLongOrNull() ?: 0L,
+                    salePriceMinor = parts[6].toLongOrNull() ?: 0L,
+                    quantity = parts[7].toIntOrNull() ?: 0,
+                    minStock = parts[8].toIntOrNull() ?: 5,
+                    status = parts[9].toIntOrNull() ?: 1
+                )
+            }
+            return null
+        }
+    }
+}
+
+object CurrencyUtils {
+    fun toMinorUnits(major: Double): Long = Math.round(major * 100.0)
+    fun toMajorUnits(minor: Long): Double = minor / 100.0
+
+    fun formatMinorUnits(minor: Long, symbol: String = "$"): String {
+        return "%s%.2f".format(symbol, minor / 100.0)
+    }
+
+    fun parseToMinorUnits(input: String): Long {
+        val clean = input.trim().replace(",", "")
+        val doubleVal = clean.toDoubleOrNull() ?: 0.0
+        return Math.round(doubleVal * 100.0)
+    }
+}
+
+
 

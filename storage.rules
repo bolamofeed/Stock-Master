@@ -1,0 +1,46 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Auth & Role helpers
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.role == 'admin';
+    }
+    
+    function isManager() {
+      return isAuthenticated() && (request.auth.token.role == 'manager' || isAdmin());
+    }
+
+    // 1. Item Photos: compressed max 200KB, images only, Admin/Manager write
+    match /items/{itemId}/{imageName} {
+      allow read: if isAuthenticated();
+      allow write: if isManager()
+        && request.resource.size < 200 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow delete: if isManager();
+    }
+
+    // 2. CSV Customer Imports & Reports (temporary storage)
+    match /imports/{userId}/{fileName} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('text/(csv|plain)');
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // 3. Database Archives & Backups (Admin only)
+    match /archives/{fileName} {
+      allow read, write, delete: if isAdmin()
+        && request.resource.size < 50 * 1024 * 1024;
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,200 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "st", "order": "ASCENDING" },
+        { "fieldPath": "cid", "order": "ASCENDING" },
+        { "fieldPath": "nl", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "st", "order": "ASCENDING" },
+        { "fieldPath": "ls", "order": "ASCENDING" },
+        { "fieldPath": "tq", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "st", "order": "ASCENDING" },
+        { "fieldPath": "ua", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "invoices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "t", "order": "ASCENDING" },
+        { "fieldPath": "s", "order": "ASCENDING" },
+        { "fieldPath": "ca", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "invoices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "eid", "order": "ASCENDING" },
+        { "fieldPath": "ca", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "invoices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "t", "order": "ASCENDING" },
+        { "fieldPath": "dt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "st", "order": "ASCENDING" },
+        { "fieldPath": "lpd", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "st", "order": "ASCENDING" },
+        { "fieldPath": "tp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "st", "order": "ASCENDING" },
+        { "fieldPath": "nl", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "auditLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "act", "order": "ASCENDING" },
+        { "fieldPath": "ca", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "brands",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "st", "order": "ASCENDING" },
+        { "fieldPath": "nl", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "brands",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "st", "order": "ASCENDING" },
+        { "fieldPath": "sp", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "items",
+      "fieldPath": "b",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "items",
+      "fieldPath": "u",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "items",
+      "fieldPath": "ms",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invoices",
+      "fieldPath": "l",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invoices",
+      "fieldPath": "en",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invoices",
+      "fieldPath": "ep",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invoices",
+      "fieldPath": "st",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invoices",
+      "fieldPath": "tax",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invoices",
+      "fieldPath": "dis",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "invoices",
+      "fieldPath": "paid",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "customers",
+      "fieldPath": "n",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "customers",
+      "fieldPath": "em",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "customers",
+      "fieldPath": "ad",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "customers",
+      "fieldPath": "no",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "customers",
+      "fieldPath": "ic",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "itemCosts",
+      "fieldPath": "b",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "auditLogs",
+      "fieldPath": "det",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "notifications",
+      "fieldPath": "t",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "notifications",
+      "fieldPath": "b",
+      "indexes": []
+    }
+  ]
+}

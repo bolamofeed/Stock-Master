@@ -154,6 +154,67 @@ exports.confirmInvoiceStockUpdate = functions.https.onCall(async (data, context)
       confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    return { success: true, message: "Invoice confirmed and stock updated." };
+    // 5. If saveCustomer is active and it's a sales invoice, transactionally create/update customer record
+    const { saveCustomer, customerName, customerPhone, totalAmount } = data;
+    if (saveCustomer && invoiceType === "SALES" && (customerName || customerPhone)) {
+      const cleanPhone = (customerPhone || "").replace(/[\s\-\(\)]/g, "");
+      const normPhone = cleanPhone.startsWith("0") ? "+20" + cleanPhone.slice(1) : cleanPhone;
+      const customersColl = db.collection("customers");
+
+      let customerRef = null;
+      let existingCustomerData = null;
+
+      if (normPhone) {
+        const phoneQuery = await transaction.get(customersColl.where("p", "==", normPhone).limit(1));
+        if (!phoneQuery.empty) {
+          customerRef = phoneQuery.docs[0].ref;
+          existingCustomerData = phoneQuery.docs[0].data();
+        }
+      }
+
+      if (!customerRef && customerName) {
+        const nameQuery = await transaction.get(customersColl.where("nl", "==", customerName.trim().toLowerCase()).limit(1));
+        if (!nameQuery.empty) {
+          customerRef = nameQuery.docs[0].ref;
+          existingCustomerData = nameQuery.docs[0].data();
+        }
+      }
+
+      const invoiceMinorTotal = totalAmount ? Math.round(Number(totalAmount) * 100) : 0;
+      const nowYmd = parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ""), 10);
+
+      if (customerRef && existingCustomerData) {
+        transaction.update(customerRef, {
+          n: customerName ? customerName.trim() : existingCustomerData.n,
+          nl: customerName ? customerName.trim().toLowerCase() : existingCustomerData.nl,
+          p: normPhone || existingCustomerData.p,
+          tp: admin.firestore.FieldValue.increment(invoiceMinorTotal),
+          ic: admin.firestore.FieldValue.increment(1),
+          lpd: nowYmd,
+          ua: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        const newCustRef = customersColl.doc();
+        transaction.set(newCustRef, {
+          n: customerName ? customerName.trim() : "Valued Customer",
+          nl: (customerName || "valued customer").trim().toLowerCase(),
+          p: normPhone || "",
+          em: "",
+          ad: "",
+          no: "",
+          mc: false,
+          st: 1,
+          tp: invoiceMinorTotal,
+          ic: 1,
+          lpd: nowYmd,
+          lra: 0,
+          ca: admin.firestore.FieldValue.serverTimestamp(),
+          ua: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    return { success: true, message: "Invoice confirmed, stock updated, and customer processed transactionally." };
   });
 });
+

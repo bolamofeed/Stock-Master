@@ -6,9 +6,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.data.model.AppNotification
 import com.example.data.model.AuditLog
+import com.example.data.model.Brand
 import com.example.data.model.Client
 import com.example.data.model.Invoice
 import com.example.data.model.Item
+import com.example.data.model.ItemBrand
 import com.example.data.model.StockMovement
 import com.example.data.model.Supplier
 import com.example.data.model.Warehouse
@@ -22,9 +24,11 @@ import com.example.data.model.Warehouse
         Supplier::class,
         AuditLog::class,
         AppNotification::class,
-        Client::class
+        Client::class,
+        Brand::class,
+        ItemBrand::class
     ],
-    version = 2,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,6 +40,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun auditLogDao(): AuditLogDao
     abstract fun notificationDao(): NotificationDao
     abstract fun clientDao(): ClientDao
+    abstract fun brandDao(): BrandDao
+    abstract fun itemBrandDao(): ItemBrandDao
 
     companion object {
         @Volatile
